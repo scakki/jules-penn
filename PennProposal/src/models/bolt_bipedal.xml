@@ -1,0 +1,153 @@
+<mujoco model="bolt_bipedal">
+    <compiler angle="radian" meshdir="./meshes/bolt_meshes/"/>
+    <size nconmax="100"/>
+    <option gravity='0 0 -9.806' iterations='50' solver='Newton' timestep='0.002'/>
+
+    <default>
+        <geom contype="1" conaffinity="1" friction="0.6 0.3 0.3" rgba="0.5 0.6 0.7 1" margin="0.001" group="0"/>
+        <light castshadow="false" diffuse="1 1 1"/>
+        <position kp="50" forcelimited="true" ctrllimited="true" forcerange="-33.5 33.5"/>
+        <camera fovy="60"/>
+        <joint damping="2" armature="0.01" frictionloss="0.2" />
+
+        <default class="hip">
+            <joint axis="1 0 0" damping="1" range="-1.0472 1.0472"/>
+            <position ctrllimited="true" ctrlrange="-1.0472 1.0472"/>
+        </default>
+
+        <default class="thigh">
+            <joint axis="0 1 0" damping="1" range="-1.563225 2.06706" ref="-0.5"/>
+            <position ctrllimited="true" ctrlrange="-1.563225 2.06706"/>
+        </default>
+
+        <default class="calf">
+            <joint axis="0 1 0" damping="1" range="-0.92271 0.962242" ref="1.0"/>
+            <position ctrllimited="true" ctrlrange="-0.92271 0.962242"/>
+        </default>
+
+    </default>
+
+    
+
+    <asset>
+        <texture type='skybox' builtin='gradient' width='128' height='128' rgb1='0.4 0.6 0.8' rgb2='0 0 0'/>
+        <texture name='plane' type='2d' builtin='checker' rgb1='0.2 0.2 0.2' rgb2='0.3 0.3 0.3' width='512' height='512'/>
+        <material name='plane' reflectance='0.0' texture='plane' texrepeat='1 1' texuniform='true'/>
+        <mesh name="bolt_body" file="bolt_body.stl"/>
+        <mesh name="bolt_hip_fe_left_side" file="bolt_hip_fe_left_side.stl"/>
+        <mesh name="upper_leg_200mm_left_side" file="upper_leg_200mm_left_side.stl"/>
+        <mesh name="lower_leg_200mm_left_side" file="lower_leg_200mm_left_side.stl"/>
+        <mesh name="bolt_foot" file="bolt_foot.stl"/>
+        <mesh name="bolt_hip_fe_right_side" file="bolt_hip_fe_right_side.stl"/>
+        <mesh name="upper_leg_200mm_right_side" file="upper_leg_200mm_right_side.stl"/>
+        <mesh name="lower_leg_200mm_right_side" file="lower_leg_200mm_right_side.stl"/>
+    </asset>
+
+    <visual>
+        <rgba com="0.502 1.0 0 0.5" contactforce="0.98 0.4 0.4 0.7" contactpoint="1.0 1.0 0.6 0.4"/>
+        <scale com="0.2" forcewidth="0.035" contactwidth="0.10" contactheight="0.04"/>
+    </visual>
+
+    <worldbody>
+        <geom name='floor' pos='0 0 0' size='100 10 .125' type='plane' material='plane' condim='3' conaffinity='15'/> <!-- Changes x pos from 0.001 to 0 -->
+        <camera name="track" mode="trackcom" pos="0 -4 1" xyaxes="1 0 0 0 0 1"/>
+        <light mode='trackcom' pos='0 0 5' dir='0 0 -1'/>
+        <light directional='true' pos='0 0 3' dir='0 0 -1' diffuse='0.2 0.2 0.2' specular='0 0 0'/>
+        <body name="torso" pos="0 0 0.474">
+            <!-- <inertial pos="0 0 0" mass="0.60" diaginertia="0.002 0.0015 0.0025"/> Added this line - torso inertia explicitly on the body -->
+            <camera name="chase_back" pos="-0.8 0 0.35" euler="0 250 0"/>
+            <site name="torso"/>
+            <joint name="root" type="free" pos="0 0 0" damping="0.1"/>
+            <geom type="mesh" mesh="bolt_body" rgba="0.8 0.8 0.8 1" contype="1" conaffinity="1" group="1" quat="1 0 0 0"/> <!-- Removed mass-->
+
+            <!-- LEFT LEG -->
+            <body name="FL_SHOULDER" pos="0 0.0636 0">
+                <site name="FL_hip_site" pos="0 0 0" size="0.02" rgba="1 0 0 0.5"/>
+                <!-- <inertial pos="0.0170826 -0.00446892 -0.0109583"
+                        quat="0.380445 0.573263 0.68117 0.250275"
+                        mass="0.13"
+                        diaginertia="0.000140999 0.000103321 5.85997e-05"/> -->
+                <joint class="hip" name="FL_HAA"/>
+                <geom type="mesh" mesh="bolt_hip_fe_left_side" rgba="0.8 0.8 0.8 1"/>
+                
+                <body name="FL_UPPER_LEG" pos="0 0.0145 -0.0386">
+                    <site name="FL_thigh_site" pos="0 0 -0.1" size="0.02" rgba="0 0 1 0.5"/>
+                    <!-- <inertial pos="1.377e-05 0.0193585 -0.118707"
+                            quat="0.705243 -0.0424536 0.0423607 0.706424"
+                            mass="0.13"
+                            diaginertia="0.000417563 0.00041107 2.46069e-05"/> -->
+                    <joint class="thigh" name="FL_HFE"/>
+                    <geom type="mesh" mesh="upper_leg_200mm_left_side" rgba="0.8 0.8 0.8 1"/>
+                    
+                    <body name="FL_LOWER_LEG" pos="0 0.0374 -0.2">
+                        <site name="FL_knee_site" pos="0 0 -0.1" size="0.02" rgba="1 1 0 0.5"/>
+                        <!-- Temporary: yardstick near left shin -->
+                        <site name="yard_top"  pos="0.05 0 -0.10" size="0.005" rgba="1 0 0 1"/>
+                        <site name="yard_bot"  pos="0.05 0 -0.20" size="0.005" rgba="0 1 0 1"/>
+
+                        <!-- <inertial pos="0 0.00836601 -0.116186"
+                                quat="0.707082 -0.00588079 0.00588079 0.707082"
+                                mass="0.10"
+                                diaginertia="0.00011713 0.000116139 2.69836e-06"/> -->
+                        <joint class="calf" name="FL_KFE"/>
+                        <geom type="mesh" mesh="lower_leg_200mm_left_side" rgba="0.8 0.8 0.8 1"/>
+                        <geom pos="0 0.008 -0.21" type="mesh" mesh="bolt_foot" rgba="0.8 0.8 0.8 1" friction="1 0.8 0.01" contype="1" conaffinity="1"/>
+                        <geom name="FL_foot_col" type="capsule" fromto="0 0 -0.19  0 0 -0.21" size="0.015"
+                                rgba="0 0 0 0" friction="1 0.8 0.01" contype="1" conaffinity="1"/> <!-- Added collision geom for foot -->
+                        <site name="FL_foot_site" pos="0 0 -0.21" size="0.025" rgba="0 1 1 0.5"/>
+                    </body>
+                </body>
+            </body>
+
+            <!-- RIGHT LEG -->
+            <body name="FR_SHOULDER" pos="0 -0.0636 0">
+                <site name="FR_hip_site" pos="0 0 0" size="0.02" rgba="1 0 0 0.5"/>
+                <!-- <inertial pos="0.0170823 0.00447099 -0.0109585"
+                        quat="0.250376 0.681095 0.573344 0.380393"
+                        mass="0.13"
+                        diaginertia="0.000141003 0.000103316 5.8591e-05"/> -->
+                <joint class="hip" name="FR_HAA"/>
+                <geom type="mesh" mesh="bolt_hip_fe_right_side" rgba="0.8 0.8 0.8 1"/>
+                
+                <body name="FR_UPPER_LEG" pos="0 -0.0145 -0.0386">
+                    <site name="FR_thigh_site" pos="0 0 -0.1" size="0.02" rgba="0 0 1 0.5"/>
+                    <!-- <inertial pos="-1.377e-05 -0.0193585 -0.118707"
+                            quat="0.705243 0.0424536 -0.0423607 0.706424"
+                            mass="0.13"
+                            diaginertia="0.000417563 0.00041107 2.46069e-05"/> -->
+                    <joint class="thigh" name="FR_HFE"/>
+                    <geom type="mesh" mesh="upper_leg_200mm_right_side" rgba="0.8 0.8 0.8 1"/>
+                    
+                    <body name="FR_LOWER_LEG" pos="0 -0.0374 -0.2">
+                        <site name="FR_knee_site" pos="0 0 -0.1" size="0.02" rgba="1 1 0 0.5"/>
+                        <!-- <inertial pos="0 -0.00836601 -0.116186"
+                                quat="0.707082 0.00588079 -0.00588079 0.707082"
+                                mass="0.10"
+                                diaginertia="0.00011713 0.000116139 2.69836e-06"/> -->
+                        <joint class="calf" name="FR_KFE"/>
+                        <geom type="mesh" mesh="lower_leg_200mm_right_side" rgba="0.8 0.8 0.8 1"/>
+                        <geom pos="0 -0.008 -0.21" type="mesh" mesh="bolt_foot" rgba="0.8 0.8 0.8 1" friction="1 0.8 0.01" contype="1" conaffinity="1"/>
+                        <geom name="FR_foot_col" type="capsule" fromto="0 0 -0.19  0 0 -0.21" size="0.015"
+                                rgba="0 0 0 0" friction="1 0.8 0.01" contype="1" conaffinity="1"/> <!-- Added collision geom for foot -->
+                        <site name="FR_foot_site" pos="0 0 -0.21" size="0.025" rgba="0 1 1 0.5"/>
+                    </body>
+                </body>
+            </body>
+        </body>
+    </worldbody>
+
+    <actuator>
+    <position class= "hip" name="FL_SHOULDER"        joint="FL_HAA"/>
+    <position class= "thigh" name="FL_UPPER_LEG"      joint="FL_HFE"/>
+    <position class= "calf" name="FL_LOWER_LEG"       joint="FL_KFE"/>
+    <position class= "hip" name="FR_SHOULDER"        joint="FR_HAA"/>
+    <position class= "thigh" name="FR_UPPER_LEG"      joint="FR_HFE"/>
+    <position class= "calf" name="FR_LOWER_LEG"       joint="FR_KFE"/>
+    </actuator>
+
+    <sensor>
+        <touch name="FL_touch" site="FL_foot_site"/>
+        <touch name="FR_touch" site="FR_foot_site"/> <!-- Added sensors for foot contact detection -->
+    </sensor>
+
+</mujoco>
