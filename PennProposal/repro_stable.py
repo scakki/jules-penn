@@ -1,9 +1,8 @@
 """
 repro_stable.py — Robustly reproduce a gait from CSV using PD + Feedforward control.
 
-While raw torque replay often drifts due to simulation inaccuracies, a PD+FF
-controller (Proportional-Derivative + Feedforward) provides the necessary
-stability to track the recorded trajectory.
+This version adds a 'warmup' phase to ensure the robot starts exactly as
+recorded, pinning the state for the first few steps.
 
 Usage:
   python repro_stable.py --xml src/models/bolt_bipedal2.xml --csv timeseries.csv
@@ -26,22 +25,18 @@ def load_csv(path):
     return df
 
 def setup_model(xml_path):
-    # We want to apply raw torques (motors) and handle PD in Python
     with open(xml_path) as f:
         xml = f.read()
 
-    # Replace position actuators with motors
     xml = re.sub(r'<position\s+kp="[^"]*"\s+forcelimited="true"\s+ctrllimited="true"\s+forcerange="([^"]*)"/>',
                  r'<motor forcelimited="true" ctrllimited="true" forcerange="\1"/>', xml)
     xml = re.sub(r"<position(\s+class)", r"<motor\1", xml)
 
-    # Set default ranges
     for cls in ("hip_abd_limited", "hip", "thigh", "calf"):
         pattern = rf'(<default\s+class="{cls}">\s*<joint[^/]*/>\s*)<position\s+ctrllimited="true"\s+ctrlrange="[^"]*"/>'
         replacement = rf'\1<motor ctrllimited="true" ctrlrange="-33.5 33.5"/>'
         xml = re.sub(pattern, replacement, xml)
 
-    # Use a temporary file in the same directory to resolve meshes
     xml_dir = os.path.dirname(os.path.abspath(xml_path))
     import tempfile
     tmp = tempfile.NamedTemporaryFile(suffix=".xml", delete=False, mode="w", dir=xml_dir)
@@ -51,7 +46,7 @@ def setup_model(xml_path):
     os.unlink(tmp.name)
     return model
 
-def reproduce(xml_path, csv_path, kp=50.0, kd=1.0, render=True, loop=True):
+def reproduce(xml_path, csv_path, kp=50.0, kd=2.0, render=True, loop=True, warmup_steps=10):
     df = load_csv(csv_path)
     model = setup_model(xml_path)
     data = mujoco.MjData(model)
@@ -66,18 +61,45 @@ def reproduce(xml_path, csv_path, kp=50.0, kd=1.0, render=True, loop=True):
     tau_ff  = df[TAU_COLS].values
     n_steps = len(df)
 
+    # Base positions
+    base_x = df.get("base_x", pd.Series([0.0]*n_steps)).values
+    base_y = df.get("base_y", pd.Series([0.0]*n_steps)).values
+    base_z = df.get("base_height", pd.Series([0.474]*n_steps)).values
+
+    # If base velocities are not in CSV, estimate them from positions
+    if "base_vx" in df.columns:
+        base_vx = df["base_vx"].values
+        base_vy = df["base_vy"].values
+        base_vz = df["base_vz"].values
+    else:
+        # Simple finite difference
+        base_vx = np.gradient(base_x, csv_dt)
+        base_vy = np.gradient(base_y, csv_dt)
+        base_vz = np.gradient(base_z, csv_dt)
+
+    def set_state(i):
+        data.qpos[0] = base_x[i]
+        data.qpos[1] = base_y[i]
+        data.qpos[2] = base_z[i]
+        # Assuming upright initially or using quaternion if available
+        if "base_qw" in df.columns:
+            data.qpos[3:7] = [df["base_qw"].iloc[i], df["base_qx"].iloc[i],
+                             df["base_qy"].iloc[i], df["base_qz"].iloc[i]]
+        else:
+            data.qpos[3:7] = [1, 0, 0, 0]
+
+        data.qvel[0] = base_vx[i]
+        data.qvel[1] = base_vy[i]
+        data.qvel[2] = base_vz[i]
+
+        # Joint states
+        data.qpos[7:13] = q_ref[i]
+        data.qvel[6:12] = qd_ref[i]
+        mujoco.mj_forward(model, data)
+
     def reset_to_start():
         mujoco.mj_resetData(model, data)
-        row = df.iloc[0]
-        # Base position and orientation
-        data.qpos[0:3] = [row.get("base_x", 0), row.get("base_y", 0), row.get("base_height", 0.474)]
-        data.qpos[3:7] = [1, 0, 0, 0] # Upright
-        # Base velocity
-        data.qvel[0] = row.get("speed", 0)
-        # Joint states
-        data.qpos[7:13] = q_ref[0]
-        data.qvel[6:12] = qd_ref[0]
-        mujoco.mj_forward(model, data)
+        set_state(0)
 
     reset_to_start()
 
@@ -97,12 +119,16 @@ def reproduce(xml_path, csv_path, kp=50.0, kd=1.0, render=True, loop=True):
                     reset_to_start()
                     wall_start = _time.perf_counter()
 
-                # Current joint states
+                # --- Warmup/Pin Phase ---
+                # For the first few steps, we pin the robot's state to match CSV exactly.
+                if i < warmup_steps:
+                    set_state(i)
+
+                # --- Control Phase ---
                 q_curr = data.qpos[7:13]
                 qd_curr = data.qvel[6:12]
 
-                # PD + FF Control Law:
-                # tau = tau_recorded + kp * (q_recorded - q_current) + kd * (qd_recorded - qd_current)
+                # PD + FF Control
                 data.ctrl[:] = tau_ff[i] + kp * (q_ref[i] - q_curr) + kd * (qd_ref[i] - qd_curr)
 
                 for _ in range(frame_skip):
@@ -110,7 +136,6 @@ def reproduce(xml_path, csv_path, kp=50.0, kd=1.0, render=True, loop=True):
 
                 viewer.sync()
 
-                # Real-time pacing
                 target_wall = (i * csv_dt)
                 elapsed = _time.perf_counter() - wall_start
                 if target_wall > elapsed:
@@ -118,21 +143,19 @@ def reproduce(xml_path, csv_path, kp=50.0, kd=1.0, render=True, loop=True):
 
                 step_idx += 1
     else:
-        # Headless mode: measure drift
-        drifts = []
+        # Headless mode
         for i in range(n_steps):
+            if i < warmup_steps:
+                set_state(i)
+
             q_curr = data.qpos[7:13]
             qd_curr = data.qvel[6:12]
             data.ctrl[:] = tau_ff[i] + kp * (q_ref[i] - q_curr) + kd * (qd_ref[i] - qd_curr)
 
-            drifts.append(np.abs(q_ref[i] - q_curr))
             for _ in range(frame_skip):
                 mujoco.mj_step(model, data)
 
-        avg_drift = np.mean(drifts)
-        print(f"Reproduction complete (Headless).")
-        print(f"Average joint drift: {avg_drift:.5f} rad")
-        print(f"Final position: x={data.qpos[0]:.3f}, z={data.qpos[2]:.3f}")
+        print(f"Reproduction complete (Headless). Final x: {data.qpos[0]:.3f}")
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
@@ -140,9 +163,10 @@ if __name__ == "__main__":
     p.add_argument("--csv", default="PennProposal/plots/bolt_simplified_Bolt-v3/run_1_20260304-120853/timeseries.csv")
     p.add_argument("--kp", type=float, default=50.0)
     p.add_argument("--kd", type=float, default=2.0)
+    p.add_argument("--warmup", type=int, default=10, help="Number of initial steps to pin state")
     p.add_argument("--no-render", action="store_true")
     p.add_argument("--no-loop", action="store_true")
     args = p.parse_args()
 
-    reproduce(args.xml, args.csv, kp=args.kp, kd=args.kd,
+    reproduce(args.xml, args.csv, kp=args.kp, kd=args.kd, warmup_steps=args.warmup,
               render=not args.no_render, loop=not args.no_loop)
